@@ -2,13 +2,79 @@ import numpy as np
 import matplotlib.pyplot as plt
 import streamlit as st
 from collections import defaultdict
+import re
+
+# =========================================================================
+# DICE PARSING
+# =========================================================================
+
+def parse_attack_input(val: str) -> dict[int, float] | None:
+    """
+    Parses an attack input string into a probability distribution.
+    Supports:
+        - Plain integer:        "10"
+        - Single die:           "d6", "d3", "d2"
+        - Multiple dice:        "2d6", "3d3"
+        - Die plus modifier:    "d6+2", "2d6+3"
+    Returns a dict {num_attacks: probability} or None if invalid.
+    """
+    val = val.strip().lower()
+
+    # Plain integer
+    if re.fullmatch(r'\d+', val):
+        n = int(val)
+        if n < 1:
+            return None
+        return {n: 1.0}
+
+    # Dice pattern: optional multiplier, die type, optional modifier
+    match = re.fullmatch(r'(\d*)d(\d+)(?:\+(\d+))?', val)
+    if not match:
+        return None
+
+    num_dice   = int(match.group(1)) if match.group(1) else 1
+    die_size   = int(match.group(2))
+    modifier   = int(match.group(3)) if match.group(3) else 0
+
+    if die_size not in (2, 3, 6):
+        return None
+    if num_dice < 1:
+        return None
+
+    # Build distribution for a single die
+    single_die = {face: 1.0 / die_size for face in range(1, die_size + 1)}
+
+    # Convolve for multiple dice
+    combined = {0: 1.0}
+    for _ in range(num_dice):
+        new_combined = defaultdict(float)
+        for v1, p1 in combined.items():
+            for v2, p2 in single_die.items():
+                new_combined[v1 + v2] += p1 * p2
+        combined = dict(new_combined)
+
+    # Apply modifier
+    if modifier:
+        combined = {k + modifier: v for k, v in combined.items()}
+
+    # Validate all outcomes are >= 1
+    if min(combined.keys()) < 1:
+        return None
+
+    return combined
+
+
+def format_attack_label(val: str) -> str:
+    """Returns a clean label for the plot title."""
+    return val.strip().lower()
+
 
 # =========================================================================
 # PROBABILITY CALCULATION
 # =========================================================================
 
 def calculate_attack_distribution(
-    num_attacks: int,
+    attack_input: str,
     to_hit: int,
     crit_hits: int | bool = False,
     hit_rerolls: int | bool = False,
@@ -20,6 +86,11 @@ def calculate_attack_distribution(
     devvy: bool = False,
     to_save: int | bool = False,
 ) -> dict:
+
+    # --- Parse attack input ---
+    attack_dist = parse_attack_input(attack_input)
+    if attack_dist is None:
+        raise ValueError("Invalid attack input. Please enter a number or a dice value e.g. 10, d6, 2d6, d6+3")
 
     # --- Input Validation ---
     if not (2 <= to_hit <= 6):
@@ -37,6 +108,7 @@ def calculate_attack_distribution(
     if to_save is not False and not (2 <= to_save <= 6):
         raise ValueError("to_save must be false or between 2 and 6")
 
+    # --- Hit probabilities ---
     crit_hit_threshold = crit_hits if crit_hits is not False else 6
     p_crit_raw         = (7 - crit_hit_threshold) / 6
     p_hit_raw          = max(0, (crit_hit_threshold - to_hit)) / 6
@@ -49,6 +121,7 @@ def calculate_attack_distribution(
         p_crit_hit   = p_crit_raw
         p_normal_hit = p_hit_raw
 
+    # --- Wound probabilities ---
     crit_wound_threshold = crit_wounds if crit_wounds is not False else 6
     p_crit_wound_raw     = (7 - crit_wound_threshold) / 6
     p_normal_wound_raw   = max(0, (crit_wound_threshold - to_wound)) / 6
@@ -63,6 +136,7 @@ def calculate_attack_distribution(
 
     p_fail_save = 1.0 if to_save is False else (to_save - 1) / 6
 
+    # --- Single attack wound distribution ---
     def single_attack_wound_dist() -> dict[int, float]:
         dist   = defaultdict(float)
         p_miss = 1 - p_crit_hit - p_normal_hit
@@ -116,17 +190,28 @@ def calculate_attack_distribution(
 
         return dist
 
-    single_dist  = single_attack_wound_dist()
-    full_dist    = defaultdict(float)
-    full_dist[0] = 1.0
+    single_dist = single_attack_wound_dist()
 
-    for _ in range(num_attacks):
-        new_dist = defaultdict(float)
-        for w1, p1 in full_dist.items():
-            for w2, p2 in single_dist.items():
-                new_dist[w1 + w2] += p1 * p2
-        full_dist = new_dist
+    # --- Convolve across attack distribution ---
+    # For each possible attack count, convolve single_dist n times,
+    # then weight by the probability of that attack count
+    full_dist = defaultdict(float)
 
+    for num_attacks, attack_prob in attack_dist.items():
+        attack_wound_dist = defaultdict(float)
+        attack_wound_dist[0] = 1.0
+
+        for _ in range(num_attacks):
+            new_dist = defaultdict(float)
+            for w1, p1 in attack_wound_dist.items():
+                for w2, p2 in single_dist.items():
+                    new_dist[w1 + w2] += p1 * p2
+            attack_wound_dist = new_dist
+
+        for w, p in attack_wound_dist.items():
+            full_dist[w] += p * attack_prob
+
+    # --- Summary statistics ---
     wounds   = np.array(sorted(full_dist.keys()))
     probs    = np.array([full_dist[w] for w in wounds])
 
@@ -153,7 +238,7 @@ def calculate_attack_distribution(
         "std_dev"       : std_dev,
         "q1"            : q1,
         "q3"            : q3,
-        "num_attacks"   : num_attacks,
+        "attack_input"  : attack_input,
         "to_hit"        : to_hit,
         "to_wound"      : to_wound,
         "to_save"       : to_save,
@@ -162,6 +247,8 @@ def calculate_attack_distribution(
         "devvy"         : devvy,
         "hit_rerolls"   : hit_rerolls,
         "wound_rerolls" : wound_rerolls,
+        "crit_hits"     : crit_hits,
+        "crit_wounds"   : crit_wounds,
     }
 
 
@@ -203,23 +290,29 @@ def plot_distribution(results: dict) -> plt.Figure:
     ax.set_xlabel("Unsaved Wounds", color="#A0AFAF", fontsize=12)
     ax.set_ylabel("Probability (%)", color="#A0AFAF", fontsize=12)
 
+    # --- Build subtitle ---
     save_label = "None" if results["to_save"] is False else f"{results['to_save']}+"
 
-    modifiers = []
-    if results["sussy"]:  modifiers.append("Sustained Hits")
-    if results["lethal"]: modifiers.append("Lethal Hits")
-    if results["devvy"]:  modifiers.append("Dev. Wounds")
+    hit_mods = [f"Hit: {results['to_hit']}+"]
+    if results["crit_hits"] is not False and results["crit_hits"] != 6:
+        hit_mods.append(f"crit {results['crit_hits']}+")
+    if results["lethal"]: hit_mods.append("lethal")
+    if results["sussy"]:  hit_mods.append("sustained")
     if results["hit_rerolls"] is not False:
         rr = results["hit_rerolls"]
-        modifiers.append(f"Hit Rerolling {'1s' if rr == 1 else f'1-{rr}'}")
+        hit_mods.append(f"re-rolling {'1s' if rr == 1 else f'1-{rr}'}")
+
+    wound_mods = [f"Wound: {results['to_wound']}+"]
+    if results["crit_wounds"] is not False and results["crit_wounds"] != 6:
+        wound_mods.append(f"crit {results['crit_wounds']}+")
+    if results["devvy"]: wound_mods.append("devastating")
     if results["wound_rerolls"] is not False:
         rr = results["wound_rerolls"]
-        modifiers.append(f"Wound Rerolling {'1s' if rr == 1 else f'1-{rr}'}")
-    modifier_str = " | " + " | ".join(modifiers) if modifiers else ""
+        wound_mods.append(f"re-rolling {'1s' if rr == 1 else f'1-{rr}'}")
 
     ax.set_title(
         f"Warhammer 40K — Unsaved Wound Distribution\n"
-        f"{results['num_attacks']} Attacks | Hit {results['to_hit']}+ | Wound {results['to_wound']}+ | Save {save_label}{modifier_str}",
+        f"{results['attack_input']} Attacks | {', '.join(hit_mods)} | {', '.join(wound_mods)} | Save: {save_label}",
         color="white", fontsize=13, pad=15
     )
 
@@ -272,7 +365,13 @@ reroll_options = ["None", "1s", "2s and under", "3s and under", "4s and under", 
 with st.sidebar:
     st.header("Attack Parameters")
 
-    num_attacks = st.number_input("Num Attacks", min_value=1, max_value=1000, value=10, step=1)
+    attack_input = st.text_input(
+        "Num Attacks",
+        value="10",
+        help="Enter a number (e.g. 10), a die (e.g. d6), multiple dice (e.g. 2d6), or dice with modifier (e.g. 2d6+3)"
+    )
+    if parse_attack_input(attack_input) is None:
+        st.error("Invalid input. Please enter a number (e.g. 10), or a dice value (e.g. d6, 2d6, d6+3). Supported dice: d2, d3, d6.")
 
     st.subheader("Hit Roll")
     to_hit      = st.selectbox("To Hit",        plus_options,   index=1)
@@ -292,9 +391,9 @@ with st.sidebar:
 
     col1, col2  = st.columns(2)
     with col1:
-        calculate   = st.button("Calculate",  use_container_width=True)
+        calculate = st.button("Calculate",   use_container_width=True)
     with col2:
-        clear       = st.button("Clear Plots", use_container_width=True)
+        clear     = st.button("Clear Plots", use_container_width=True)
 
 # --- Clear plots ---
 if clear:
@@ -304,7 +403,7 @@ if clear:
 if calculate:
     try:
         results = calculate_attack_distribution(
-            num_attacks   = int(num_attacks),
+            attack_input  = attack_input,
             to_hit        = parse_dropdown(to_hit),
             crit_hits     = parse_dropdown(crit_hits),
             hit_rerolls   = False if hit_rerolls == "None" else parse_dropdown(hit_rerolls),
