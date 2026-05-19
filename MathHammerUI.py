@@ -61,7 +61,7 @@ def calculate_attack_distribution(
         p_crit_wound   = p_crit_wound_raw
         p_normal_wound = p_normal_wound_raw
 
-        p_fail_save = 1.0 if to_save is False else (to_save - 1) / 6
+    p_fail_save = 1.0 if to_save is False else (to_save - 1) / 6
 
     def single_attack_wound_dist() -> dict[int, float]:
         dist   = defaultdict(float)
@@ -197,11 +197,14 @@ def plot_distribution(results: dict) -> plt.Figure:
 
     ax.set_xlabel("Unsaved Wounds", color="#A0AFAF", fontsize=12)
     ax.set_ylabel("Probability (%)", color="#A0AFAF", fontsize=12)
+
+    save_label = "None" if results["to_save"] is False else f"{results['to_save']}+"
     ax.set_title(
         f"Warhammer 40K — Unsaved Wound Distribution\n"
-        f"{results['num_attacks']} Attacks | Hit {results['to_hit']}+ | Wound {results['to_wound']}+ | Save {results['to_save']}+",
+        f"{results['num_attacks']} Attacks | Hit {results['to_hit']}+ | Wound {results['to_wound']}+ | Save {save_label}",
         color="white", fontsize=13, pad=15
     )
+
     ax.tick_params(colors="#A0AFAF")
     ax.set_xticks(wounds)
     for spine in ax.spines.values():
@@ -235,7 +238,7 @@ def plot_distribution(results: dict) -> plt.Figure:
 # =========================================================================
 
 def parse_dropdown(val: str) -> int:
-    return int(val.replace("s and under", "").replace("s", "").replace("+", ""))
+    return int(''.join(filter(str.isdigit, val)))
 
 st.set_page_config(page_title="MatHammer", layout="wide")
 st.title("Warhammer 40k Attack Sequence Statistics")
@@ -250,22 +253,22 @@ with st.sidebar:
     num_attacks = st.number_input("Num Attacks", min_value=1, max_value=1000, value=10, step=1)
 
     st.subheader("Hit Roll")
-    to_hit       = st.selectbox("To Hit",         plus_options,   index=1)
-    crit_hits    = st.selectbox("Crit Hits",       plus_options,   index=4)
-    hit_rerolls  = st.selectbox("Hit Rerolls",     reroll_options, index=0)
-    sussy        = st.selectbox("Sustained Hits",  ["No", "Yes"],  index=0)
-    lethal       = st.selectbox("Lethal Hits",     ["No", "Yes"],  index=0)
+    to_hit      = st.selectbox("To Hit",         plus_options,   index=1)
+    crit_hits   = st.selectbox("Crit Hits",       plus_options,   index=4)
+    hit_rerolls = st.selectbox("Hit Rerolls",     reroll_options, index=0)
+    sussy       = st.selectbox("Sustained Hits",  ["No", "Yes"],  index=0)
+    lethal      = st.selectbox("Lethal Hits",     ["No", "Yes"],  index=0)
 
     st.subheader("Wound Roll")
-    to_wound     = st.selectbox("To Wound",        plus_options,   index=2)
-    crit_wounds  = st.selectbox("Crit Wounds",     plus_options,   index=4)
-    wound_rr     = st.selectbox("Wound Rerolls",   reroll_options, index=0)
-    devvy        = st.selectbox("Dev. Wounds",     ["No", "Yes"],  index=0)
+    to_wound    = st.selectbox("To Wound",        plus_options,   index=2)
+    crit_wounds = st.selectbox("Crit Wounds",     plus_options,   index=4)
+    wound_rr    = st.selectbox("Wound Rerolls",   reroll_options, index=0)
+    devvy       = st.selectbox("Dev. Wounds",     ["No", "Yes"],  index=0)
 
     st.subheader("Save Roll")
-    to_save = st.selectbox("To Save", ["No Save"] + plus_options,  index=0)
+    to_save     = st.selectbox("To Save", ["No Save"] + plus_options, index=0)
 
-    calculate    = st.button("Calculate", use_container_width=True)
+    calculate   = st.button("Calculate", use_container_width=True)
 
 # --- Main area ---
 if calculate:
