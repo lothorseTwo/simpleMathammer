@@ -145,18 +145,23 @@ def calculate_attack_distribution(
     probs  = probs[mask]
 
     return {
-        "wounds"      : wounds,
-        "probs"       : probs,
-        "mean"        : mean,
-        "median"      : median,
-        "mode"        : mode,
-        "std_dev"     : std_dev,
-        "q1"          : q1,
-        "q3"          : q3,
-        "num_attacks" : num_attacks,
-        "to_hit"      : to_hit,
-        "to_wound"    : to_wound,
-        "to_save"     : to_save,
+        "wounds"        : wounds,
+        "probs"         : probs,
+        "mean"          : mean,
+        "median"        : median,
+        "mode"          : mode,
+        "std_dev"       : std_dev,
+        "q1"            : q1,
+        "q3"            : q3,
+        "num_attacks"   : num_attacks,
+        "to_hit"        : to_hit,
+        "to_wound"      : to_wound,
+        "to_save"       : to_save,
+        "sussy"         : sussy,
+        "lethal"        : lethal,
+        "devvy"         : devvy,
+        "hit_rerolls"   : hit_rerolls,
+        "wound_rerolls" : wound_rerolls,
     }
 
 
@@ -199,9 +204,22 @@ def plot_distribution(results: dict) -> plt.Figure:
     ax.set_ylabel("Probability (%)", color="#A0AFAF", fontsize=12)
 
     save_label = "None" if results["to_save"] is False else f"{results['to_save']}+"
+
+    modifiers = []
+    if results["sussy"]:  modifiers.append("Sustained Hits")
+    if results["lethal"]: modifiers.append("Lethal Hits")
+    if results["devvy"]:  modifiers.append("Dev. Wounds")
+    if results["hit_rerolls"] is not False:
+        rr = results["hit_rerolls"]
+        modifiers.append(f"Hit Rerolling {'1s' if rr == 1 else f'1-{rr}'}")
+    if results["wound_rerolls"] is not False:
+        rr = results["wound_rerolls"]
+        modifiers.append(f"Wound Rerolling {'1s' if rr == 1 else f'1-{rr}'}")
+    modifier_str = " | " + " | ".join(modifiers) if modifiers else ""
+
     ax.set_title(
         f"Warhammer 40K — Unsaved Wound Distribution\n"
-        f"{results['num_attacks']} Attacks | Hit {results['to_hit']}+ | Wound {results['to_wound']}+ | Save {save_label}",
+        f"{results['num_attacks']} Attacks | Hit {results['to_hit']}+ | Wound {results['to_wound']}+ | Save {save_label}{modifier_str}",
         color="white", fontsize=13, pad=15
     )
 
@@ -243,6 +261,10 @@ def parse_dropdown(val: str) -> int:
 st.set_page_config(page_title="MatHammer", layout="wide")
 st.title("Warhammer 40k Attack Sequence Statistics")
 
+# --- Initialise session state ---
+if "plots" not in st.session_state:
+    st.session_state.plots = []
+
 plus_options   = ["2+", "3+", "4+", "5+", "6+"]
 reroll_options = ["None", "1s", "2s and under", "3s and under", "4s and under", "5s and under"]
 
@@ -253,24 +275,32 @@ with st.sidebar:
     num_attacks = st.number_input("Num Attacks", min_value=1, max_value=1000, value=10, step=1)
 
     st.subheader("Hit Roll")
-    to_hit      = st.selectbox("To Hit",         plus_options,   index=1)
-    crit_hits   = st.selectbox("Crit Hits",       plus_options,   index=4)
-    hit_rerolls = st.selectbox("Hit Rerolls",     reroll_options, index=0)
-    sussy       = st.selectbox("Sustained Hits",  ["No", "Yes"],  index=0)
-    lethal      = st.selectbox("Lethal Hits",     ["No", "Yes"],  index=0)
+    to_hit      = st.selectbox("To Hit",        plus_options,   index=1)
+    crit_hits   = st.selectbox("Crit Hits",      plus_options,   index=4)
+    hit_rerolls = st.selectbox("Hit Rerolls",    reroll_options, index=0)
+    sussy       = st.selectbox("Sustained Hits", ["No", "Yes"],  index=0)
+    lethal      = st.selectbox("Lethal Hits",    ["No", "Yes"],  index=0)
 
     st.subheader("Wound Roll")
-    to_wound    = st.selectbox("To Wound",        plus_options,   index=2)
-    crit_wounds = st.selectbox("Crit Wounds",     plus_options,   index=4)
-    wound_rr    = st.selectbox("Wound Rerolls",   reroll_options, index=0)
-    devvy       = st.selectbox("Dev. Wounds",     ["No", "Yes"],  index=0)
+    to_wound    = st.selectbox("To Wound",       plus_options,   index=2)
+    crit_wounds = st.selectbox("Crit Wounds",    plus_options,   index=4)
+    wound_rr    = st.selectbox("Wound Rerolls",  reroll_options, index=0)
+    devvy       = st.selectbox("Dev. Wounds",    ["No", "Yes"],  index=0)
 
     st.subheader("Save Roll")
     to_save     = st.selectbox("To Save", ["No Save"] + plus_options, index=0)
 
-    calculate   = st.button("Calculate", use_container_width=True)
+    col1, col2  = st.columns(2)
+    with col1:
+        calculate   = st.button("Calculate",  use_container_width=True)
+    with col2:
+        clear       = st.button("Clear Plots", use_container_width=True)
 
-# --- Main area ---
+# --- Clear plots ---
+if clear:
+    st.session_state.plots = []
+
+# --- Calculate and store new plot ---
 if calculate:
     try:
         results = calculate_attack_distribution(
@@ -287,9 +317,14 @@ if calculate:
             to_save       = False if to_save == "No Save" else parse_dropdown(to_save),
         )
         fig = plot_distribution(results)
-        st.pyplot(fig)
+        st.session_state.plots.insert(0, fig)
 
     except Exception as e:
         st.error(f"Error: {e}")
+
+# --- Render all stored plots ---
+if st.session_state.plots:
+    for fig in st.session_state.plots:
+        st.pyplot(fig)
 else:
     st.info("Configure your attack parameters in the sidebar and press Calculate.")
