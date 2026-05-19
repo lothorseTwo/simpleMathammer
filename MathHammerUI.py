@@ -14,11 +14,11 @@ def calculate_attack_distribution(
     hit_rerolls: int | bool = False,
     sussy: bool = False,
     lethal: bool = False,
-    to_wound: int = 4,
+    to_wound: int,
     crit_wounds: int | bool = False,
     wound_rerolls: int | bool = False,
     devvy: bool = False,
-    to_save: int = 6,
+    to_save: int | bool = False,
 ) -> dict:
 
     # --- Input Validation ---
@@ -34,8 +34,8 @@ def calculate_attack_distribution(
         raise ValueError("crit_wounds must be False or an integer between 2 and 6")
     if wound_rerolls is not False and not (1 <= wound_rerolls <= 5):
         raise ValueError("wound_rerolls must be False or an integer between 1 and 5")
-    if not (2 <= to_save <= 6):
-        raise ValueError("to_save must be between 2 and 6")
+    if to_save is not False and not (2 <= to_save <= 6):
+        raise ValueError("to_save must be false or between 2 and 6")
 
     crit_hit_threshold = crit_hits if crit_hits is not False else 6
     p_crit_raw         = (7 - crit_hit_threshold) / 6
@@ -61,7 +61,7 @@ def calculate_attack_distribution(
         p_crit_wound   = p_crit_wound_raw
         p_normal_wound = p_normal_wound_raw
 
-    p_fail_save = (to_save - 1) / 6
+        p_fail_save = 1.0 if to_save is False else (to_save - 1) / 6
 
     def single_attack_wound_dist() -> dict[int, float]:
         dist   = defaultdict(float)
@@ -263,7 +263,7 @@ with st.sidebar:
     devvy        = st.selectbox("Dev. Wounds",     ["No", "Yes"],  index=0)
 
     st.subheader("Save Roll")
-    to_save      = st.selectbox("To Save",         plus_options,   index=4)
+    to_save = st.selectbox("To Save", ["No Save"] + plus_options,  index=0)
 
     calculate    = st.button("Calculate", use_container_width=True)
 
@@ -281,7 +281,7 @@ if calculate:
             crit_wounds   = parse_dropdown(crit_wounds),
             wound_rerolls = False if wound_rr == "None" else parse_dropdown(wound_rr),
             devvy         = devvy == "Yes",
-            to_save       = parse_dropdown(to_save),
+            to_save       = False if to_save == "No Save" else parse_dropdown(to_save),
         )
         fig = plot_distribution(results)
         st.pyplot(fig)
