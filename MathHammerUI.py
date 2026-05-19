@@ -237,8 +237,8 @@ def plot_distribution(results: dict) -> plt.Figure:
 def parse_dropdown(val: str) -> int:
     return int(val.replace("+", ""))
 
-st.set_page_config(page_title="WH40K Attack Calculator", layout="wide")
-st.title("⚔️ Warhammer 40K Attack Calculator")
+st.set_page_config(page_title="MatHammer", layout="wide")
+st.title("Warhammer 40k Attack Sequence Statistics")
 
 plus_options   = ["2+", "3+", "4+", "5+", "6+"]
 reroll_options = ["None", "1+", "2+", "3+", "4+", "5+"]
