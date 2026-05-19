@@ -235,13 +235,13 @@ def plot_distribution(results: dict) -> plt.Figure:
 # =========================================================================
 
 def parse_dropdown(val: str) -> int:
-    return int(val.replace("+", ""))
+    return int(val.replace("s and under", "").replace("s", "").replace("+", ""))
 
 st.set_page_config(page_title="MatHammer", layout="wide")
 st.title("Warhammer 40k Attack Sequence Statistics")
 
 plus_options   = ["2+", "3+", "4+", "5+", "6+"]
-reroll_options = ["None", "1+", "2+", "3+", "4+", "5+"]
+reroll_options = ["None", "1s", "2s and under", "3s and under", "4s and under", "5s and under"]
 
 # --- Sidebar controls ---
 with st.sidebar:
