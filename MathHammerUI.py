@@ -14,7 +14,7 @@ def calculate_attack_distribution(
     hit_rerolls: int | bool = False,
     sussy: bool = False,
     lethal: bool = False,
-    to_wound: int 4,
+    to_wound: int = 4,
     crit_wounds: int | bool = False,
     wound_rerolls: int | bool = False,
     devvy: bool = False,
