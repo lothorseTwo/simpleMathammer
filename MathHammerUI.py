@@ -1,9 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import streamlit as st
 from collections import defaultdict
-import tkinter as tk
-from tkinter import ttk
 
 # =========================================================================
 # PROBABILITY CALCULATION
@@ -42,12 +40,11 @@ def calculate_attack_distribution(
     crit_hit_threshold = crit_hits if crit_hits is not False else 6
     p_crit_raw         = (7 - crit_hit_threshold) / 6
     p_hit_raw          = max(0, (crit_hit_threshold - to_hit)) / 6
-    p_miss_raw         = (to_hit - 1) / 6
 
     if hit_rerolls is not False:
         p_reroll     = hit_rerolls / 6
-        p_crit_hit   = p_crit_raw   + p_reroll * p_crit_raw
-        p_normal_hit = p_hit_raw    + p_reroll * p_hit_raw
+        p_crit_hit   = p_crit_raw + p_reroll * p_crit_raw
+        p_normal_hit = p_hit_raw  + p_reroll * p_hit_raw
     else:
         p_crit_hit   = p_crit_raw
         p_normal_hit = p_hit_raw
@@ -58,8 +55,8 @@ def calculate_attack_distribution(
 
     if wound_rerolls is not False:
         p_wreroll      = wound_rerolls / 6
-        p_crit_wound   = p_crit_wound_raw   + p_wreroll * p_crit_wound_raw
-        p_normal_wound = p_normal_wound_raw  + p_wreroll * p_normal_wound_raw
+        p_crit_wound   = p_crit_wound_raw  + p_wreroll * p_crit_wound_raw
+        p_normal_wound = p_normal_wound_raw + p_wreroll * p_normal_wound_raw
     else:
         p_crit_wound   = p_crit_wound_raw
         p_normal_wound = p_normal_wound_raw
@@ -67,7 +64,7 @@ def calculate_attack_distribution(
     p_fail_save = (to_save - 1) / 6
 
     def single_attack_wound_dist() -> dict[int, float]:
-        dist = defaultdict(float)
+        dist   = defaultdict(float)
         p_miss = 1 - p_crit_hit - p_normal_hit
         dist[0] += p_miss
 
@@ -84,8 +81,7 @@ def calculate_attack_distribution(
                     d[0] += p_crit_w * (1 - p_fail_s)
                 d[1] += p_norm_w * p_fail_s
                 d[0] += p_norm_w * (1 - p_fail_s)
-                p_miss_w = 1 - p_crit_w - p_norm_w
-                d[0] += p_miss_w
+                d[0] += 1 - p_crit_w - p_norm_w
             return d
 
         def convolve_dists(d1: dict, d2: dict) -> dict[int, float]:
@@ -168,10 +164,7 @@ def calculate_attack_distribution(
 # PLOTTING
 # =========================================================================
 
-def plot_distribution(results: dict, ax, canvas):
-    ax.clear()
-    ax.set_facecolor("#1e1e2e")
-
+def plot_distribution(results: dict) -> plt.Figure:
     wounds  = results["wounds"]
     probs   = results["probs"]
     mean    = results["mean"]
@@ -180,6 +173,10 @@ def plot_distribution(results: dict, ax, canvas):
     std_dev = results["std_dev"]
     q1      = results["q1"]
     q3      = results["q3"]
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+    fig.patch.set_facecolor("#1e1e2e")
+    ax.set_facecolor("#1e1e2e")
 
     bar_colors = ["#FF6359" if w == mode else "#41605E" for w in wounds]
     bars = ax.bar(wounds, probs * 100, color=bar_colors, edgecolor="#2e2e3e", linewidth=0.5, zorder=3)
@@ -230,113 +227,66 @@ def plot_distribution(results: dict, ax, canvas):
     )
     ax.legend(loc="upper left", facecolor="#2e2e3e", edgecolor="#3e3e4e", labelcolor="#A0AFAF")
 
-    canvas.draw()
+    return fig
 
 
 # =========================================================================
-# UI
+# STREAMLIT UI
 # =========================================================================
 
-def build_ui():
-    root = tk.Tk()
-    root.title("Warhammer 40K Attack Calculator")
-    root.configure(bg="#1e1e2e")
+def parse_dropdown(val: str) -> int:
+    return int(val.replace("+", ""))
 
-    # --- Styling ---
-    style = ttk.Style()
-    style.theme_use("clam")
-    style.configure("TLabel",    background="#1e1e2e", foreground="#A0AFAF", font=("Helvetica", 10))
-    style.configure("TFrame",    background="#1e1e2e")
-    style.configure("TCombobox", fieldbackground="#ffffff", background="#ffffff", foreground="#000000", font=("Helvetica", 10))
-    style.configure("TButton",   background="#41605E", foreground="white", font=("Helvetica", 11, "bold"), padding=6)
-    style.configure("TEntry",    fieldbackground="#ffffff", foreground="#000000", font=("Helvetica", 10))
-    style.map("TButton", background=[("active", "#FF6359")])
+st.set_page_config(page_title="WH40K Attack Calculator", layout="wide")
+st.title("⚔️ Warhammer 40K Attack Calculator")
 
-    # --- Layout frames ---
-    control_frame = ttk.Frame(root, padding=10)
-    control_frame.pack(side=tk.LEFT, fill=tk.Y)
+plus_options   = ["2+", "3+", "4+", "5+", "6+"]
+reroll_options = ["None", "1+", "2+", "3+", "4+", "5+"]
 
-    chart_frame = ttk.Frame(root)
-    chart_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+# --- Sidebar controls ---
+with st.sidebar:
+    st.header("Attack Parameters")
 
-    # --- Matplotlib canvas ---
-    fig, ax = plt.subplots(figsize=(10, 5))
-    fig.patch.set_facecolor("#1e1e2e")
-    canvas = FigureCanvasTkAgg(fig, master=chart_frame)
-    canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+    num_attacks = st.number_input("Num Attacks", min_value=1, max_value=1000, value=10, step=1)
 
-    # --- Helper to create a labelled dropdown ---
-    def make_dropdown(parent, label, options, default, row):
-        ttk.Label(parent, text=label).grid(row=row, column=0, sticky=tk.W, pady=4)
-        var = tk.StringVar(value=default)
-        cb  = ttk.Combobox(parent, textvariable=var, values=options, state="readonly", width=10)
-        cb.grid(row=row, column=1, padx=8, pady=4)
-        return var
+    st.subheader("Hit Roll")
+    to_hit       = st.selectbox("To Hit",         plus_options,   index=1)
+    crit_hits    = st.selectbox("Crit Hits",       plus_options,   index=4)
+    hit_rerolls  = st.selectbox("Hit Rerolls",     reroll_options, index=0)
+    sussy        = st.selectbox("Sustained Hits",  ["No", "Yes"],  index=0)
+    lethal       = st.selectbox("Lethal Hits",     ["No", "Yes"],  index=0)
 
-    # --- Helper to parse "None" / bool / int from dropdown ---
-    def parse_value(val: str) -> int | bool:
-        if val == "None": return False
-        if val == "Yes":  return True
-        if val == "No":   return False
-        return int(val.replace("+", ""))
+    st.subheader("Wound Roll")
+    to_wound     = st.selectbox("To Wound",        plus_options,   index=2)
+    crit_wounds  = st.selectbox("Crit Wounds",     plus_options,   index=4)
+    wound_rr     = st.selectbox("Wound Rerolls",   reroll_options, index=0)
+    devvy        = st.selectbox("Dev. Wounds",     ["No", "Yes"],  index=0)
 
-    # --- Number of attacks field (numbers only) ---
-    ttk.Label(control_frame, text="Num Attacks").grid(row=0, column=0, sticky=tk.W, pady=4)
-    vcmd = root.register(lambda P: P.isdigit() or P == "")
-    num_attacks_var = tk.StringVar(value="10")
-    ttk.Entry(
-        control_frame, textvariable=num_attacks_var,
-        validate="key", validatecommand=(vcmd, "%P"), width=12
-    ).grid(row=0, column=1, padx=8, pady=4)
+    st.subheader("Save Roll")
+    to_save      = st.selectbox("To Save",         plus_options,   index=4)
 
-    # --- Dropdowns ---
-    to_hit_var      = make_dropdown(control_frame, "To Hit",         ["2+","3+","4+","5+","6+"],              "3+",   row=1)
-    crit_hits_var   = make_dropdown(control_frame, "Crit Hits",      ["2+","3+","4+","5+","6+"],              "6+",   row=2)
-    hit_rerolls_var = make_dropdown(control_frame, "Hit Rerolls",    ["None","1+","2+","3+","4+","5+"],       "None", row=3)
-    sussy_var       = make_dropdown(control_frame, "Sustained Hits", ["No","Yes"],                            "No",   row=4)
-    lethal_var      = make_dropdown(control_frame, "Lethal Hits",    ["No","Yes"],                            "No",   row=5)
-    to_wound_var    = make_dropdown(control_frame, "To Wound",       ["2+","3+","4+","5+","6+"],              "4+",   row=6)
-    crit_wounds_var = make_dropdown(control_frame, "Crit Wounds",    ["2+","3+","4+","5+","6+"],              "6+",   row=7)
-    wound_rr_var    = make_dropdown(control_frame, "Wound Rerolls",  ["None","1+","2+","3+","4+","5+"],       "None", row=8)
-    devvy_var       = make_dropdown(control_frame, "Dev. Wounds",    ["No","Yes"],                            "No",   row=9)
-    to_save_var     = make_dropdown(control_frame, "To Save",        ["2+","3+","4+","5+","6+"],              "6+",   row=10)
+    calculate    = st.button("Calculate", use_container_width=True)
 
-    # --- Error label ---
-    error_var = tk.StringVar()
-    ttk.Label(control_frame, textvariable=error_var, foreground="#FF6359").grid(row=12, column=0, columnspan=2, pady=4)
+# --- Main area ---
+if calculate:
+    try:
+        results = calculate_attack_distribution(
+            num_attacks   = int(num_attacks),
+            to_hit        = parse_dropdown(to_hit),
+            crit_hits     = parse_dropdown(crit_hits),
+            hit_rerolls   = False if hit_rerolls == "None" else parse_dropdown(hit_rerolls),
+            sussy         = sussy == "Yes",
+            lethal        = lethal == "Yes",
+            to_wound      = parse_dropdown(to_wound),
+            crit_wounds   = parse_dropdown(crit_wounds),
+            wound_rerolls = False if wound_rr == "None" else parse_dropdown(wound_rr),
+            devvy         = devvy == "Yes",
+            to_save       = parse_dropdown(to_save),
+        )
+        fig = plot_distribution(results)
+        st.pyplot(fig)
 
-    # --- Calculate button callback ---
-    def on_calculate():
-        error_var.set("")
-        try:
-            num_attacks = int(num_attacks_var.get())
-            if num_attacks < 1:
-                raise ValueError("Number of attacks must be at least 1")
-
-            results = calculate_attack_distribution(
-                num_attacks   = num_attacks,
-                to_hit        = parse_value(to_hit_var.get()),
-                crit_hits     = parse_value(crit_hits_var.get()),
-                hit_rerolls   = parse_value(hit_rerolls_var.get()),
-                sussy         = parse_value(sussy_var.get()),
-                lethal        = parse_value(lethal_var.get()),
-                to_wound      = parse_value(to_wound_var.get()),
-                crit_wounds   = parse_value(crit_wounds_var.get()),
-                wound_rerolls = parse_value(wound_rr_var.get()),
-                devvy         = parse_value(devvy_var.get()),
-                to_save       = parse_value(to_save_var.get()),
-            )
-            plot_distribution(results, ax, canvas)
-
-        except Exception as e:
-            error_var.set(f"Error: {e}")
-
-    ttk.Button(control_frame, text="Calculate", command=on_calculate).grid(
-        row=11, column=0, columnspan=2, pady=12, sticky=tk.EW
-    )
-
-    root.mainloop()
-
-
-if __name__ == "__main__":
-    build_ui()
+    except Exception as e:
+        st.error(f"Error: {e}")
+else:
+    st.info("Configure your attack parameters in the sidebar and press Calculate.")
