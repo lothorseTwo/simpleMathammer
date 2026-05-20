@@ -64,14 +64,64 @@ def parse_attack_input(val: str) -> dict[int, float] | None:
     return combined
 
 
-def format_attack_label(val: str) -> str:
-    """Returns a clean label for the plot title."""
-    return val.strip().lower()
-
-
 # =========================================================================
 # PROBABILITY CALCULATION
 # =========================================================================
+
+def calculate_hit_probs(
+    to_hit: int,
+    crit_hit_threshold: int,
+    hit_rerolls: int | bool,
+) -> tuple[float, float]:
+    """
+    Calculates p_crit_hit and p_normal_hit correctly accounting for
+    rerolls that may include successful faces.
+
+    Uses set arithmetic to precisely determine which faces are kept,
+    which are rerolled, and what the rerolled dice contribute.
+    """
+    faces_crit   = set(range(crit_hit_threshold, 7))
+    faces_hit    = set(range(to_hit, crit_hit_threshold))
+    faces_reroll = set(range(1, hit_rerolls + 1)) if hit_rerolls is not False else set()
+
+    p_crit_raw = len(faces_crit) / 6
+    p_hit_raw  = len(faces_hit)  / 6
+
+    p_crit_kept    = len(faces_crit - faces_reroll) / 6
+    p_hit_kept     = len(faces_hit  - faces_reroll) / 6
+    p_total_reroll = len(faces_reroll)              / 6
+
+    p_crit_hit   = p_crit_kept + p_total_reroll * p_crit_raw
+    p_normal_hit = p_hit_kept  + p_total_reroll * p_hit_raw
+
+    return p_crit_hit, p_normal_hit
+
+
+def calculate_wound_probs(
+    to_wound: int,
+    crit_wound_threshold: int,
+    wound_rerolls: int | bool,
+) -> tuple[float, float]:
+    """
+    Calculates p_crit_wound and p_normal_wound correctly accounting for
+    rerolls that may include successful faces.
+    """
+    faces_crit_w   = set(range(crit_wound_threshold, 7))
+    faces_hit_w    = set(range(to_wound, crit_wound_threshold))
+    faces_reroll_w = set(range(1, wound_rerolls + 1)) if wound_rerolls is not False else set()
+
+    p_crit_wound_raw   = len(faces_crit_w) / 6
+    p_normal_wound_raw = len(faces_hit_w)  / 6
+
+    p_crit_wound_kept   = len(faces_crit_w - faces_reroll_w) / 6
+    p_normal_wound_kept = len(faces_hit_w  - faces_reroll_w) / 6
+    p_total_wreroll     = len(faces_reroll_w)                / 6
+
+    p_crit_wound   = p_crit_wound_kept   + p_total_wreroll * p_crit_wound_raw
+    p_normal_wound = p_normal_wound_kept + p_total_wreroll * p_normal_wound_raw
+
+    return p_crit_wound, p_normal_wound
+
 
 def calculate_attack_distribution(
     attack_input: str,
@@ -110,30 +160,13 @@ def calculate_attack_distribution(
 
     # --- Hit probabilities ---
     crit_hit_threshold = crit_hits if crit_hits is not False else 6
-    p_crit_raw         = (7 - crit_hit_threshold) / 6
-    p_hit_raw          = max(0, (crit_hit_threshold - to_hit)) / 6
-
-    if hit_rerolls is not False:
-        p_reroll     = hit_rerolls / 6
-        p_crit_hit   = p_crit_raw + p_reroll * p_crit_raw
-        p_normal_hit = p_hit_raw  + p_reroll * p_hit_raw
-    else:
-        p_crit_hit   = p_crit_raw
-        p_normal_hit = p_hit_raw
+    p_crit_hit, p_normal_hit = calculate_hit_probs(to_hit, crit_hit_threshold, hit_rerolls)
 
     # --- Wound probabilities ---
     crit_wound_threshold = crit_wounds if crit_wounds is not False else 6
-    p_crit_wound_raw     = (7 - crit_wound_threshold) / 6
-    p_normal_wound_raw   = max(0, (crit_wound_threshold - to_wound)) / 6
+    p_crit_wound, p_normal_wound = calculate_wound_probs(to_wound, crit_wound_threshold, wound_rerolls)
 
-    if wound_rerolls is not False:
-        p_wreroll      = wound_rerolls / 6
-        p_crit_wound   = p_crit_wound_raw  + p_wreroll * p_crit_wound_raw
-        p_normal_wound = p_normal_wound_raw + p_wreroll * p_normal_wound_raw
-    else:
-        p_crit_wound   = p_crit_wound_raw
-        p_normal_wound = p_normal_wound_raw
-
+    # --- Save probability ---
     p_fail_save = 1.0 if to_save is False else (to_save - 1) / 6
 
     # --- Single attack wound distribution ---
@@ -193,8 +226,6 @@ def calculate_attack_distribution(
     single_dist = single_attack_wound_dist()
 
     # --- Convolve across attack distribution ---
-    # For each possible attack count, convolve single_dist n times,
-    # then weight by the probability of that attack count
     full_dist = defaultdict(float)
 
     for num_attacks, attack_prob in attack_dist.items():
